@@ -39,9 +39,9 @@ def to_latlon(x, y, z=None):
 # Convert train line to UTM coordinates for accurate distance measurements
 line_utm = transform(to_utm, train_line)
 line_length = line_utm.length  # total length in meters
-# 4. Divide the line into 100m segments
+# 4. Divide the line into 500 m segments
 num_segments = math.ceil(line_length / 500)
-# Compute segment breakpoints along the line (every 100m, plus the end of the line)
+# Compute segment breakpoints along the line (every 500 m, plus the end of the line)
 points_utm = [line_utm.interpolate(min(i * 500, line_length)) for i in range(num_segments + 1)]
 # Transform those breakpoints back to lat/lon for plotting
 x_coords = [pt.x for pt in points_utm]
@@ -56,16 +56,13 @@ center_lat = center_point.y
 center_lon = center_point.x
 
 # 2 & 3. Define the function to filter data and project points onto the line
-def update_map(operator, trajet, start_ts, end_ts):
+def update_map(operator, trajet, metric, start_ts, end_ts):
     # 🔁 Convertir les timestamps UNIX en datetime (GMT+2)
     start_dt = datetime.fromtimestamp(start_ts) - timedelta(hours=2)
     end_dt = datetime.fromtimestamp(end_ts) - timedelta(hours=2)
 
-    print("🔎 DEBUG")
-    print("Opérateur sélectionné :", operator)
-    print("Trajet sélectionné     :", trajet)
-    print("Début UNIX             :", start_ts, "→", start_dt)
-    print("Fin UNIX               :", end_ts, "→", end_dt)
+    metric = metric.strip().lower()
+
 
     mask = (
         (df_all["operateur"].str.strip().str.lower() == operator.strip().lower()) &
@@ -84,12 +81,30 @@ def update_map(operator, trajet, start_ts, end_ts):
     df_filtered["distance"] = [line_utm.project(Point(x, y)) for x, y in zip(utm_x, utm_y)]
 
     def get_color(val):
-        if pd.isna(val): return "red"
-        elif val >= 4: return "green"
-        elif val >= 1: return "orange"
-        return "red"
+        if pd.isna(val):
+            return "red"
+        if metric == "connectmbs":
+            if val >= 4:
+                return "green"
+            elif val >= 1:
+                return "orange"
+            return "red"
+        elif metric == "rsrp":
+            if val >= -90:
+                return "green"
+            elif val >= -110:
+                return "orange"
+            return "red"
+        elif metric == "rsrq":
+            if val >= -10:
+                return "green"
+            elif val >= -15:
+                return "orange"
+            return "red"
+        else:
+            return "red"
 
-    df_filtered["point_color"] = df_filtered["connectmbs"].apply(get_color)
+    df_filtered["point_color"] = df_filtered[metric].apply(get_color)
     df_filtered["segment_index"] = (df_filtered["distance"] // 500).astype("Int64")
 
     # 🔁 Coloration des segments
@@ -179,6 +194,11 @@ with gr.Blocks() as demo:
     with gr.Row():
         operator_input = gr.Dropdown(label="Opérateur", choices=["Orange", "SFR", "Transatel", "Stellar"], value="Orange")
         trip_input = gr.Radio(label="Trajet", choices=["aller", "retour"], value="aller")
+        metric_input = gr.Dropdown(
+            label="Métrique",
+            choices=["connectMbs", "rsrp", "rsrq"],
+            value="connectMbs",
+        )
         start_input = gr.Slider(
             label="Début",
             minimum=df_all["ts_unix"].min(),
@@ -205,10 +225,15 @@ with gr.Blocks() as demo:
     # Bind the update function to the button click
     show_button.click(
         fn=update_map,
-        inputs=[operator_input, trip_input, start_input, end_input],
+        inputs=[operator_input, trip_input, metric_input, start_input, end_input],
         outputs=[map_output, pie_output]
-    )    # Optionally, load the initial view on app launch
-    demo.load(fn=update_map, inputs=[operator_input, trip_input, start_input, end_input], outputs=[map_output, pie_output])
+    )
+    # Optionally, load the initial view on app launch
+    demo.load(
+        fn=update_map,
+        inputs=[operator_input, trip_input, metric_input, start_input, end_input],
+        outputs=[map_output, pie_output],
+    )
 
 
 
