@@ -1,0 +1,7 @@
+pandas
+gradio
+plotly
+shapely
+pyproj
+numpy
+dateparser
