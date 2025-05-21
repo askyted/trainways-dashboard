@@ -74,7 +74,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     df_filtered = df_all[mask].copy()
     if df_filtered.empty:
         gr.Warning("⚠️ Aucun point pour cette sélection")
-        return go.Figure(), go.Figure()
+        return go.Figure(), go.Figure(), go.Figure(), "0"
 
     # 🔁 Projection des points sur la ligne
     utm_x, utm_y = transformer_to_utm.transform(df_filtered["longitude"].values, df_filtered["latitude"].values)
@@ -129,11 +129,44 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     g = o = r = 0
     for i in focus_coords:
         col = segment_colors[i]
-        if col == "green": g += 1
-        elif col == "orange": o += 1
-        elif col == "red": r += 1
+        if col == "green":
+            g += 1
+        elif col == "orange":
+            o += 1
+        elif col == "red":
+            r += 1
         color_segments[col]["lat"].extend([lat_coords[i], lat_coords[i + 1], None])
         color_segments[col]["lon"].extend([lon_coords[i], lon_coords[i + 1], None])
+
+    # ⏱️ Calcul des durées par couleur et du temps maximal en vert
+    df_filtered = df_filtered.sort_values("timestamp")
+    df_filtered["time_diff"] = df_filtered["timestamp"].diff().fillna(pd.Timedelta(0))
+    durations = df_filtered.groupby("point_color")["time_diff"].sum()
+    green_time = durations.get("green", timedelta(0))
+    orange_time = durations.get("orange", timedelta(0))
+    red_time = durations.get("red", timedelta(0))
+
+    df_filtered["color_change"] = df_filtered["point_color"] != df_filtered["point_color"].shift()
+    df_filtered["group"] = df_filtered["color_change"].cumsum()
+    max_green = df_filtered[df_filtered["point_color"] == "green"].groupby("group")["timestamp"].agg(lambda x: x.max() - x.min()).max()
+    if pd.isna(max_green):
+        max_green = timedelta(0)
+    max_green_minutes = round(max_green.total_seconds() / 60, 2)
+
+    fig_time = go.Figure(
+        data=[
+            go.Bar(
+                x=["Vert", "Orange", "Rouge"],
+                y=[green_time.total_seconds() / 60, orange_time.total_seconds() / 60, red_time.total_seconds() / 60],
+                marker_color=["green", "orange", "red"],
+            )
+        ]
+    )
+    fig_time.update_layout(
+        title="Temps cumulé par qualité (min)",
+        height=300,
+        margin={"t": 40, "b": 0, "l": 0, "r": 0},
+    )
 
     for col, coords in color_segments.items():
         if coords["lat"]:
@@ -180,7 +213,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
         margin={"t": 40, "b": 0, "l": 0, "r": 0}
     )
 
-    return fig, fig_pie
+    return fig, fig_pie, fig_time, f"{max_green_minutes}"
 
 
 def update_display(ts_start, ts_end):
@@ -189,7 +222,7 @@ def update_display(ts_start, ts_end):
     return readable_start, readable_end
 
 # 6. Create the Gradio interface with interactive controls
-with gr.Blocks() as demo:
+with gr.Blocks(css=".timestamp-slider input[type=number]{display:none;}") as demo:
     gr.Markdown("## Carte de connectivité sur le trajet Toulouse-Narbonne")
     with gr.Row():
         operator_input = gr.Dropdown(label="Opérateur", choices=["Orange", "SFR", "Transatel", "Stellar"], value="Orange")
@@ -205,7 +238,7 @@ with gr.Blocks() as demo:
             maximum=df_all["ts_unix"].max(),
             value=df_all["ts_unix"].min(),
             step=60,
-            elem_classes="smaller"
+            elem_classes="smaller timestamp-slider"
         )
 
         end_input = gr.Slider(
@@ -214,25 +247,39 @@ with gr.Blocks() as demo:
             maximum=df_all["ts_unix"].max(),
             value=df_all["ts_unix"].max(),
             step=60,
-            elem_classes="smaller"
+            elem_classes="smaller timestamp-slider"
         )
+
+        start_label = gr.Markdown()
+        end_label = gr.Markdown()
+
+        start_input.release(update_display, [start_input, end_input], [start_label, end_label])
+        end_input.release(update_display, [start_input, end_input], [start_label, end_label])
 
 
     show_button = gr.Button("Afficher la carte")
     map_output = gr.Plot(label="Carte")
     pie_output = gr.Plot(label="Qualité de la portion")
+    time_output = gr.Plot(label="Temps par couleur")
+    streak_output = gr.Markdown()
 
     # Bind the update function to the button click
     show_button.click(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output]
+        outputs=[map_output, pie_output, time_output, streak_output]
     )
     # Optionally, load the initial view on app launch
     demo.load(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output],
+        outputs=[map_output, pie_output, time_output, streak_output],
+    )
+    demo.load(
+        fn=update_display,
+        inputs=[start_input, end_input],
+        outputs=[start_label, end_label],
+        queue=False,
     )
 
 
