@@ -25,8 +25,20 @@ def load_dataset(path: str) -> pd.DataFrame:
             settings={"TIMEZONE": "Europe/Paris", "RETURN_AS_TIMEZONE_AWARE": False},
         )
     )
+
+    df["prev_received_at"] = df["previousserverreceivedat"].apply(
+        lambda x: parse(
+            str(x),
+            languages=["en"],
+            settings={"TIMEZONE": "Europe/Paris", "RETURN_AS_TIMEZONE_AWARE": False},
+        )
+        if pd.notna(x) and str(x).strip() != "" else None
+    )
+    df["prev_received_at"] = df["prev_received_at"].fillna(df["timestamp"])
+
     df["ts_unix"] = df["timestamp"].apply(lambda x: x.timestamp())
     df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
+    df["prev_ts_unix"] = df["prev_received_at"].apply(lambda x: x.timestamp())
     return df
 
 
@@ -139,8 +151,8 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     mask = (
         (df_all["operateur"].str.strip().str.lower() == operator.strip().lower()) &
         (df_all["trajet"].str.strip().str.lower() == trajet.strip().lower()) &
-        (df_all["timestamp"] >= start_dt) &
-        (df_all["timestamp"] <= end_dt)
+        (df_all["prev_received_at"] >= start_dt) &
+        (df_all["prev_received_at"] <= end_dt)
     )
 
     df_filtered = df_all[mask].copy()
@@ -325,7 +337,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     fig_time = go.Figure()
     fig_time.add_trace(
         go.Scatter(
-            x=df_filtered["timestamp"],
+            x=df_filtered["prev_received_at"],
             y=df_filtered["connectmbs"],
             mode="markers",
             marker=dict(color=df_filtered["point_color"], size=5),
@@ -334,7 +346,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     )
     for _, row in df_gares.iterrows():
         idx = (df_filtered["distance"] - row["distance"]).abs().idxmin()
-        ts_gare = df_filtered.loc[idx, "timestamp"]
+        ts_gare = df_filtered.loc[idx, "prev_received_at"]
         fig_time.add_shape(
             type="line",
             x0=ts_gare,
@@ -367,8 +379,8 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
 
 def update_display(ts_start, ts_end):
     """Format slider timestamps for display."""
-    readable_start = datetime.fromtimestamp(ts_start).strftime("%d/%m %H:%M")
-    readable_end = datetime.fromtimestamp(ts_end).strftime("%d/%m %H:%M")
+    readable_start = datetime.fromtimestamp(ts_start).strftime("%d/%m %H:%M:%S")
+    readable_end = datetime.fromtimestamp(ts_end).strftime("%d/%m %H:%M:%S")
     return readable_start, readable_end
 
 # 6. Create the Gradio interface with interactive controls
@@ -384,19 +396,19 @@ with gr.Blocks() as demo:
         )
         start_input = gr.Slider(
             label="Début",
-            minimum=df_all["ts_unix"].min(),
-            maximum=df_all["ts_unix"].max(),
-            value=df_all["ts_unix"].min(),
-            step=60,
+            minimum=df_all["prev_ts_unix"].min(),
+            maximum=df_all["prev_ts_unix"].max(),
+            value=df_all["prev_ts_unix"].min(),
+            step=1,
             elem_classes="smaller"
         )
 
         end_input = gr.Slider(
             label="Fin",
-            minimum=df_all["ts_unix"].min(),
-            maximum=df_all["ts_unix"].max(),
-            value=df_all["ts_unix"].max(),
-            step=60,
+            minimum=df_all["prev_ts_unix"].min(),
+            maximum=df_all["prev_ts_unix"].max(),
+            value=df_all["prev_ts_unix"].max(),
+            step=1,
             elem_classes="smaller"
         )
 
