@@ -22,6 +22,30 @@ df_all["timestamp"] = df_all["timestamp"].apply(
 df_all["ts_unix"] = df_all["timestamp"].apply(lambda x: x.timestamp())
 
 df_all["datetime"] = pd.to_datetime(df_all["timestamp"], unit="s")
+
+
+stations_data = {
+    "Gare": [
+        "Labège-Innopole", "Escalquens", "Baziège", "Villenouvelle",
+        "Villefranche-de-Lauragais", "Avignonet-Lauragais", "Castelnaudary",
+        "Bram", "Carcassonne", "Lézignan-Corbières", "Narbonne"
+    ],
+    "Latitude": [
+        43.5469, 43.5167, 43.4833, 43.4667,
+        43.4000, 43.3833, 43.3167, 43.2500,
+        43.2175, 43.2000, 43.1875
+    ],
+    "Longitude": [
+        1.5133, 1.5667, 1.6167, 1.6667,
+        1.7333, 1.8000, 1.9500, 2.1167,
+        2.3518, 2.7500, 3.0037
+    ]
+}
+
+# Création du DataFrame
+df_gares = pd.DataFrame(stations_data)
+
+
 # Load the LineString geometry from the pickle file
 with open("toulouse_narbonne.pkl", "rb") as f:
     train_line = pickle.load(f)
@@ -74,7 +98,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     df_filtered = df_all[mask].copy()
     if df_filtered.empty:
         gr.Warning("⚠️ Aucun point pour cette sélection")
-        return go.Figure(), go.Figure(), go.Figure(), "0"
+        return go.Figure(), go.Figure()
 
     # 🔁 Projection des points sur la ligne
     utm_x, utm_y = transformer_to_utm.transform(df_filtered["longitude"].values, df_filtered["latitude"].values)
@@ -129,44 +153,11 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     g = o = r = 0
     for i in focus_coords:
         col = segment_colors[i]
-        if col == "green":
-            g += 1
-        elif col == "orange":
-            o += 1
-        elif col == "red":
-            r += 1
+        if col == "green": g += 1
+        elif col == "orange": o += 1
+        elif col == "red": r += 1
         color_segments[col]["lat"].extend([lat_coords[i], lat_coords[i + 1], None])
         color_segments[col]["lon"].extend([lon_coords[i], lon_coords[i + 1], None])
-
-    # ⏱️ Calcul des durées par couleur et du temps maximal en vert
-    df_filtered = df_filtered.sort_values("timestamp")
-    df_filtered["time_diff"] = df_filtered["timestamp"].diff().fillna(pd.Timedelta(0))
-    durations = df_filtered.groupby("point_color")["time_diff"].sum()
-    green_time = durations.get("green", timedelta(0))
-    orange_time = durations.get("orange", timedelta(0))
-    red_time = durations.get("red", timedelta(0))
-
-    df_filtered["color_change"] = df_filtered["point_color"] != df_filtered["point_color"].shift()
-    df_filtered["group"] = df_filtered["color_change"].cumsum()
-    max_green = df_filtered[df_filtered["point_color"] == "green"].groupby("group")["timestamp"].agg(lambda x: x.max() - x.min()).max()
-    if pd.isna(max_green):
-        max_green = timedelta(0)
-    max_green_minutes = round(max_green.total_seconds() / 60, 2)
-
-    fig_time = go.Figure(
-        data=[
-            go.Bar(
-                x=["Vert", "Orange", "Rouge"],
-                y=[green_time.total_seconds() / 60, orange_time.total_seconds() / 60, red_time.total_seconds() / 60],
-                marker_color=["green", "orange", "red"],
-            )
-        ]
-    )
-    fig_time.update_layout(
-        title="Temps cumulé par qualité (min)",
-        height=300,
-        margin={"t": 40, "b": 0, "l": 0, "r": 0},
-    )
 
     for col, coords in color_segments.items():
         if coords["lat"]:
@@ -212,8 +203,116 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
         height=300,
         margin={"t": 40, "b": 0, "l": 0, "r": 0}
     )
+   # ➕ Lissage : regrouper par tranche de 100 mètres
 
-    return fig, fig_pie, fig_time, f"{max_green_minutes}"
+    def clip_connectmbs(val):
+        try:
+            if pd.isna(val):
+                return 0
+            val = float(val)
+            if val > 5:
+                return 6
+            else:
+                return val
+        except:
+            return 0
+
+    df_filtered["connectmbs"] = df_filtered["connectmbs"].apply(clip_connectmbs)
+
+    df_filtered["distance_bin"] = (df_filtered["distance"] // 100)*100
+    df_grouped = df_filtered.groupby("distance_bin").agg(
+        mean_connectmbs=("connectmbs", "mean"),  # 🔁 ici c'est bien minuscule
+        count=("connectmbs", "count")
+    ).reset_index()
+
+    # 🔧 Recalculer les distances des gares si pas déjà fait
+    utm_gare_x, utm_gare_y = transformer_to_utm.transform(df_gares["Longitude"].values, df_gares["Latitude"].values)
+    df_gares["distance"] = [line_utm.project(Point(x, y)) for x, y in zip(utm_gare_x, utm_gare_y)]
+
+    # ➕ Nouveau graphique
+    fig_dist = go.Figure()
+
+    # Courbe lissée
+    fig_dist.add_trace(go.Scatter(
+        x=df_grouped["distance_bin"],
+        y=df_grouped["mean_connectmbs"],
+        mode="lines+markers",
+        line=dict(color="black", width=2),
+        marker=dict(size=6),
+        name="connectmbs (moyenne)"
+    ))
+
+    # Lignes verticales + noms des gares
+    for _, row in df_gares.iterrows():
+        fig_dist.add_shape(
+            type="line",
+            x0=row["distance"],
+            x1=row["distance"],
+            y0=df_grouped["mean_connectmbs"].min(),
+            y1=df_grouped["mean_connectmbs"].max(),
+            line=dict(color="blue")
+        )
+        fig_dist.add_annotation(
+            x=row["distance"],
+            y=df_grouped["mean_connectmbs"].max(),
+            text=row["Gare"],
+            showarrow=False,
+            yanchor="bottom",
+            textangle=-90,
+            font=dict(size=12, color="blue")
+
+        )
+    tick_vals = np.linspace(df_grouped["distance_bin"].min(), df_grouped["distance_bin"].max(), num=10)
+
+    tick_text = [f"{int(val/1000)}" for val in tick_vals]
+    fig_dist.update_layout(
+        xaxis=dict(
+            title="Distance le long du trajet (km)",
+            tickvals=tick_vals,
+            ticktext=tick_text
+        ),
+        title="Connectivité (connectmbs) en fonction de la distance",
+        xaxis_title="Distance le long du trajet (km)",
+        yaxis_title="connectmbs (moyenne)",
+        height=400,
+        margin={"t": 40, "b": 40, "l": 40, "r": 40}
+
+    )
+    # ➕ Lignes de référence horizontales
+    fig_dist.add_shape(
+        type="line",
+        x0=df_grouped["distance_bin"].min(),
+        x1=df_grouped["distance_bin"].max(),
+        y0=5,
+        y1=5,
+        line=dict(color="green", width=2, dash="dash"),
+        name="Seuil Excellent"
+    )
+
+    fig_dist.add_shape(
+        type="line",
+        x0=df_grouped["distance_bin"].min(),
+        x1=df_grouped["distance_bin"].max(),
+        y0=2,
+        y1=2,
+        line=dict(color="orange", width=2, dash="dash"),
+        name="Seuil Moyen"
+    )
+
+    fig_dist.add_shape(
+        type="line",
+        x0=df_grouped["distance_bin"].min(),
+        x1=df_grouped["distance_bin"].max(),
+        y0=0,
+        y1=0,
+        line=dict(color="red", width=2, dash="dash"),
+        name="Seuil Faible"
+    )
+
+
+
+
+    return fig, fig_pie, fig_dist
 
 
 def update_display(ts_start, ts_end):
@@ -222,7 +321,7 @@ def update_display(ts_start, ts_end):
     return readable_start, readable_end
 
 # 6. Create the Gradio interface with interactive controls
-with gr.Blocks(css=".timestamp-slider input[type=number]{display:none;}") as demo:
+with gr.Blocks() as demo:
     gr.Markdown("## Carte de connectivité sur le trajet Toulouse-Narbonne")
     with gr.Row():
         operator_input = gr.Dropdown(label="Opérateur", choices=["Orange", "SFR", "Transatel", "Stellar"], value="Orange")
@@ -238,7 +337,7 @@ with gr.Blocks(css=".timestamp-slider input[type=number]{display:none;}") as dem
             maximum=df_all["ts_unix"].max(),
             value=df_all["ts_unix"].min(),
             step=60,
-            elem_classes="smaller timestamp-slider"
+            elem_classes="smaller"
         )
 
         end_input = gr.Slider(
@@ -247,39 +346,27 @@ with gr.Blocks(css=".timestamp-slider input[type=number]{display:none;}") as dem
             maximum=df_all["ts_unix"].max(),
             value=df_all["ts_unix"].max(),
             step=60,
-            elem_classes="smaller timestamp-slider"
+            elem_classes="smaller"
         )
-
-        start_label = gr.Markdown()
-        end_label = gr.Markdown()
-
-        start_input.release(update_display, [start_input, end_input], [start_label, end_label])
-        end_input.release(update_display, [start_input, end_input], [start_label, end_label])
 
 
     show_button = gr.Button("Afficher la carte")
     map_output = gr.Plot(label="Carte")
     pie_output = gr.Plot(label="Qualité de la portion")
-    time_output = gr.Plot(label="Temps par couleur")
-    streak_output = gr.Markdown()
+    dist_output = gr.Plot(label="Connectivité en fonction de la distance")
+
 
     # Bind the update function to the button click
     show_button.click(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, time_output, streak_output]
+        outputs=[map_output, pie_output, dist_output]
     )
     # Optionally, load the initial view on app launch
     demo.load(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, time_output, streak_output],
-    )
-    demo.load(
-        fn=update_display,
-        inputs=[start_input, end_input],
-        outputs=[start_label, end_label],
-        queue=False,
+        outputs=[map_output, pie_output, dist_output],
     )
 
 
