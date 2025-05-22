@@ -1,27 +1,73 @@
-import pandas as pd
-import pickle
-from shapely.geometry import LineString, Point
-from shapely.ops import transform
-import pyproj
-import numpy as np
+"""Interactive dashboard to explore mobile connectivity along the train line."""
+
 import math
-import plotly.graph_objects as go
-import gradio as gr
-from dateparser import parse
 from datetime import datetime, timedelta
+import pickle
 
-# 1. Load the data and parse timestamps, load the LineString
-df_all = pd.read_csv("df_trainways.csv")
-df_all.columns = df_all.columns.str.strip().str.lower()
+import gradio as gr
+import numpy as np
+import pandas as pd
+import plotly.graph_objects as go
+import pyproj
+from dateparser import parse
+from shapely.geometry import Point
+from shapely.ops import transform
 
-# Parse UNIX timestamp (float) to datetime
 
-df_all["timestamp"] = df_all["timestamp"].apply(
-    lambda x: parse(str(x), languages=['fr'], settings={"TIMEZONE": "Europe/Paris", "RETURN_AS_TIMEZONE_AWARE": False})
-)
-df_all["ts_unix"] = df_all["timestamp"].apply(lambda x: x.timestamp())
+def load_dataset(path: str) -> pd.DataFrame:
+    """Load and normalize the CSV dataset."""
+    df = pd.read_csv(path)
+    df.columns = df.columns.str.strip().str.lower()
+    df["timestamp"] = df["timestamp"].apply(
+        lambda x: parse(
+            str(x),
+            languages=["fr"],
+            settings={"TIMEZONE": "Europe/Paris", "RETURN_AS_TIMEZONE_AWARE": False},
+        )
+    )
+    df["ts_unix"] = df["timestamp"].apply(lambda x: x.timestamp())
+    df["datetime"] = pd.to_datetime(df["timestamp"], unit="s")
+    return df
 
-df_all["datetime"] = pd.to_datetime(df_all["timestamp"], unit="s")
+
+df_all = load_dataset("df_trainways.csv")
+
+
+def get_color(value: float, metric: str) -> str:
+    """Return a color for the given metric value."""
+    if pd.isna(value):
+        return "red"
+    metric = metric.lower()
+    if metric == "connectmbs":
+        if value >= 4:
+            return "green"
+        if value >= 1:
+            return "orange"
+        return "red"
+    if metric == "rsrp":
+        if value >= -90:
+            return "green"
+        if value >= -110:
+            return "orange"
+        return "red"
+    if metric == "rsrq":
+        if value >= -10:
+            return "green"
+        if value >= -15:
+            return "orange"
+        return "red"
+    return "red"
+
+
+def clip_connectmbs(val: float) -> float:
+    """Return a sanitized connectmbs value."""
+    try:
+        if pd.isna(val):
+            return 0
+        val = float(val)
+        return 6 if val > 5 else val
+    except Exception:
+        return 0
 
 
 stations_data = {
@@ -79,8 +125,10 @@ center_point = line_latlon.centroid
 center_lat = center_point.y
 center_lon = center_point.x
 
+
 # 2 & 3. Define the function to filter data and project points onto the line
 def update_map(operator, trajet, metric, start_ts, end_ts):
+    """Return map, pie chart and distance chart for the selected period."""
     # 🔁 Convertir les timestamps UNIX en datetime (GMT+2)
     start_dt = datetime.fromtimestamp(start_ts) - timedelta(hours=2)
     end_dt = datetime.fromtimestamp(end_ts) - timedelta(hours=2)
@@ -104,31 +152,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     utm_x, utm_y = transformer_to_utm.transform(df_filtered["longitude"].values, df_filtered["latitude"].values)
     df_filtered["distance"] = [line_utm.project(Point(x, y)) for x, y in zip(utm_x, utm_y)]
 
-    def get_color(val):
-        if pd.isna(val):
-            return "red"
-        if metric == "connectmbs":
-            if val >= 4:
-                return "green"
-            elif val >= 1:
-                return "orange"
-            return "red"
-        elif metric == "rsrp":
-            if val >= -90:
-                return "green"
-            elif val >= -110:
-                return "orange"
-            return "red"
-        elif metric == "rsrq":
-            if val >= -10:
-                return "green"
-            elif val >= -15:
-                return "orange"
-            return "red"
-        else:
-            return "red"
-
-    df_filtered["point_color"] = df_filtered[metric].apply(get_color)
+    df_filtered["point_color"] = df_filtered[metric].apply(lambda v: get_color(v, metric))
     df_filtered["segment_index"] = (df_filtered["distance"] // 500).astype("Int64")
 
     # 🔁 Coloration des segments
@@ -204,18 +228,6 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
         margin={"t": 40, "b": 0, "l": 0, "r": 0}
     )
    # ➕ Lissage : regrouper par tranche de 100 mètres
-
-    def clip_connectmbs(val):
-        try:
-            if pd.isna(val):
-                return 0
-            val = float(val)
-            if val > 5:
-                return 6
-            else:
-                return val
-        except:
-            return 0
 
     df_filtered["connectmbs"] = df_filtered["connectmbs"].apply(clip_connectmbs)
 
@@ -316,6 +328,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
 
 
 def update_display(ts_start, ts_end):
+    """Format slider timestamps for display."""
     readable_start = datetime.fromtimestamp(ts_start).strftime("%d/%m %H:%M")
     readable_end = datetime.fromtimestamp(ts_end).strftime("%d/%m %H:%M")
     return readable_start, readable_end
