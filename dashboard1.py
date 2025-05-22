@@ -241,7 +241,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     utm_gare_x, utm_gare_y = transformer_to_utm.transform(df_gares["Longitude"].values, df_gares["Latitude"].values)
     df_gares["distance"] = [line_utm.project(Point(x, y)) for x, y in zip(utm_gare_x, utm_gare_y)]
 
-    # ➕ Nouveau graphique
+    # ➕ Nouveau graphique : connectmbs en fonction de la distance
     fig_dist = go.Figure()
 
     # Courbe lissée
@@ -321,10 +321,48 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
         name="Seuil Faible"
     )
 
+    # Temporal chart: raw connectmbs values over time
+    fig_time = go.Figure()
+    fig_time.add_trace(
+        go.Scatter(
+            x=df_filtered["timestamp"],
+            y=df_filtered["connectmbs"],
+            mode="markers",
+            marker=dict(color=df_filtered["point_color"], size=5),
+            name="connectmbs"
+        )
+    )
+    for _, row in df_gares.iterrows():
+        idx = (df_filtered["distance"] - row["distance"]).abs().idxmin()
+        ts_gare = df_filtered.loc[idx, "timestamp"]
+        fig_time.add_shape(
+            type="line",
+            x0=ts_gare,
+            x1=ts_gare,
+            y0=df_filtered["connectmbs"].min(),
+            y1=df_filtered["connectmbs"].max(),
+            line=dict(color="blue")
+        )
+        fig_time.add_annotation(
+            x=ts_gare,
+            y=df_filtered["connectmbs"].max(),
+            text=row["Gare"],
+            showarrow=False,
+            yanchor="bottom",
+            textangle=-90,
+            font=dict(size=12, color="blue")
+        )
+    fig_time.update_layout(
+        title="Connectivité (connectmbs) en fonction du temps",
+        xaxis_title="Horodatage",
+        yaxis_title="connectmbs",
+        height=400,
+        margin={"t": 40, "b": 40, "l": 40, "r": 40}
+)
 
 
 
-    return fig, fig_pie, fig_dist
+    return fig, fig_pie, fig_dist, fig_time
 
 
 def update_display(ts_start, ts_end):
@@ -367,19 +405,20 @@ with gr.Blocks() as demo:
     map_output = gr.Plot(label="Carte")
     pie_output = gr.Plot(label="Qualité de la portion")
     dist_output = gr.Plot(label="Connectivité en fonction de la distance")
+    time_output = gr.Plot(label="Connectivité en fonction du temps")
 
 
     # Bind the update function to the button click
     show_button.click(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, dist_output]
+        outputs=[map_output, pie_output, dist_output, time_output]
     )
     # Optionally, load the initial view on app launch
     demo.load(
         fn=update_map,
         inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, dist_output],
+        outputs=[map_output, pie_output, dist_output, time_output],
     )
 
 

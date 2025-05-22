@@ -16,5 +16,6 @@ Alongside the connectivity map and pie chart, the dashboard now also includes:
 
 - A bar chart showing the total time spent in green, orange and red zones.
 - A text indicator of the longest continuous duration in the green zone.
+- A timeline chart showing raw connectMbs values with station arrival markers.
 
 Dependencies are listed in `requirements.txt`.
