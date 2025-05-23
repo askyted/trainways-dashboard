@@ -167,6 +167,22 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     df_filtered["point_color"] = df_filtered[metric].apply(lambda v: get_color(v, metric))
     df_filtered["segment_index"] = (df_filtered["distance"] // 500).astype("Int64")
 
+    # ➕ Prepare timeline data and inject red points for 10s gaps
+    df_time = df_filtered[["prev_received_at", "connectmbs", "point_color"]].sort_values("prev_received_at")
+    missing = []
+    previous_ts = None
+    for ts in df_time["prev_received_at"]:
+        if previous_ts is not None:
+            gap = (ts - previous_ts).total_seconds()
+            while gap > 10:
+                previous_ts += timedelta(seconds=10)
+                missing.append({"prev_received_at": previous_ts, "connectmbs": 0, "point_color": "red"})
+                gap -= 10
+        previous_ts = ts
+    if missing:
+        df_time = pd.concat([df_time, pd.DataFrame(missing)], ignore_index=True)
+        df_time = df_time.sort_values("prev_received_at")
+
     # 🔁 Coloration des segments
     segment_colors = ["red"] * num_segments
     for idx, group in df_filtered.groupby("segment_index"):
@@ -337,10 +353,10 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     fig_time = go.Figure()
     fig_time.add_trace(
         go.Scatter(
-            x=df_filtered["prev_received_at"],
-            y=df_filtered["connectmbs"],
+            x=df_time["prev_received_at"],
+            y=df_time["connectmbs"],
             mode="markers",
-            marker=dict(color=df_filtered["point_color"], size=5),
+            marker=dict(color=df_time["point_color"], size=5),
             name="connectmbs"
         )
     )
