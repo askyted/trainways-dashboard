@@ -14,8 +14,9 @@ The interface lets you choose the operator, direction, metric and a time range. 
 
 Alongside the connectivity map and pie chart, the dashboard now also includes:
 
-- A bar chart showing the total time spent in green, orange and red zones.
-- A text indicator of the longest continuous duration in the green zone.
-- A timeline chart showing raw connectMbs values with station arrival markers.
+- A bar chart indicating the longest continuous time (10 s steps) spent in the green, orange and red zones.
+- A filter to display either the distance or timestamp chart.
+
+The selected chart shows either connectivity averaged by distance or the raw timeline with station arrival markers.
 
 Dependencies are listed in `requirements.txt`.
