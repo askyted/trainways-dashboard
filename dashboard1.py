@@ -139,7 +139,7 @@ center_lon = center_point.x
 
 
 # 2 & 3. Define the function to filter data and project points onto the line
-def update_map(operator, trajet, metric, start_ts, end_ts):
+def update_map(operator, trajet, metric, start_ts, end_ts, chart_choice):
     """Return map, pie chart and distance chart for the selected period."""
     # 🔁 Convertir les timestamps UNIX en datetime (GMT+2)
     start_dt = datetime.fromtimestamp(start_ts) - timedelta(hours=2)
@@ -158,7 +158,7 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     df_filtered = df_all[mask].copy()
     if df_filtered.empty:
         gr.Warning("⚠️ Aucun point pour cette sélection")
-        return go.Figure(), go.Figure()
+        return go.Figure(), go.Figure(), go.Figure(), go.Figure()
 
     # 🔁 Projection des points sur la ligne
     utm_x, utm_y = transformer_to_utm.transform(df_filtered["longitude"].values, df_filtered["latitude"].values)
@@ -182,6 +182,20 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
     if missing:
         df_time = pd.concat([df_time, pd.DataFrame(missing)], ignore_index=True)
         df_time = df_time.sort_values("prev_received_at")
+
+    # Calculate longest continuous duration for each color (10s step -> minutes)
+    df_time["run"] = df_time["point_color"].ne(df_time["point_color"].shift()).cumsum()
+    durations = df_time.groupby(["point_color", "run"]).size() * 10 / 60
+    longest = durations.groupby("point_color").max()
+    bar_vals = [longest.get(col, 0) for col in ["green", "orange", "red"]]
+    fig_bar = go.Figure(
+        data=[go.Bar(x=["Vert", "Orange", "Rouge"], y=bar_vals, marker_color=["green", "orange", "red"])]
+    )
+    fig_bar.update_layout(
+        title="Durée max en continu (minutes)",
+        height=300,
+        margin={"t": 40, "b": 0, "l": 0, "r": 0}
+    )
 
     # 🔁 Coloration des segments
     segment_colors = ["red"] * num_segments
@@ -386,11 +400,11 @@ def update_map(operator, trajet, metric, start_ts, end_ts):
         yaxis_title="connectmbs",
         height=400,
         margin={"t": 40, "b": 40, "l": 40, "r": 40}
-)
+    )
 
+    chart = fig_dist if chart_choice == "distance" else fig_time
 
-
-    return fig, fig_pie, fig_dist, fig_time
+    return fig, fig_pie, fig_bar, chart
 
 
 def update_display(ts_start, ts_end):
@@ -409,6 +423,11 @@ with gr.Blocks() as demo:
             label="Métrique",
             choices=["connectMbs", "rsrp", "rsrq"],
             value="connectMbs",
+        )
+        graph_choice = gr.Radio(
+            label="Graphique",
+            choices=["distance", "timestamp"],
+            value="distance",
         )
         start_input = gr.Slider(
             label="Début",
@@ -432,21 +451,21 @@ with gr.Blocks() as demo:
     show_button = gr.Button("Afficher la carte")
     map_output = gr.Plot(label="Carte")
     pie_output = gr.Plot(label="Qualité de la portion")
-    dist_output = gr.Plot(label="Connectivité en fonction de la distance")
-    time_output = gr.Plot(label="Connectivité en fonction du temps")
+    bar_output = gr.Plot(label="Durée continue par couleur")
+    chart_output = gr.Plot(label="Graphique choisi")
 
 
     # Bind the update function to the button click
     show_button.click(
         fn=update_map,
-        inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, dist_output, time_output]
+        inputs=[operator_input, trip_input, metric_input, start_input, end_input, graph_choice],
+        outputs=[map_output, pie_output, bar_output, chart_output]
     )
     # Optionally, load the initial view on app launch
     demo.load(
         fn=update_map,
-        inputs=[operator_input, trip_input, metric_input, start_input, end_input],
-        outputs=[map_output, pie_output, dist_output, time_output],
+        inputs=[operator_input, trip_input, metric_input, start_input, end_input, graph_choice],
+        outputs=[map_output, pie_output, bar_output, chart_output],
     )
 
 
