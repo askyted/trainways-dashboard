@@ -450,8 +450,9 @@ with gr.Blocks() as demo:
 
     show_button = gr.Button("Afficher la carte")
     map_output = gr.Plot(label="Carte")
-    pie_output = gr.Plot(label="Qualité de la portion")
-    bar_output = gr.Plot(label="Durée continue par couleur")
+    with gr.Row():
+        pie_output = gr.Plot(label="Qualité de la portion")
+        bar_output = gr.Plot(label="Durée continue par couleur")
     chart_output = gr.Plot(label="Graphique choisi")
 
 
