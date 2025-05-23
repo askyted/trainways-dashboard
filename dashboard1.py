@@ -414,7 +414,15 @@ def update_display(ts_start, ts_end):
     return readable_start, readable_end
 
 # 6. Create the Gradio interface with interactive controls
-with gr.Blocks() as demo:
+with gr.Blocks(
+    css="""
+    .small-plot {
+        max-width: 350px;
+        margin-left: auto;
+        margin-right: auto;
+    }
+    """
+) as demo:
     gr.Markdown("## Carte de connectivité sur le trajet Toulouse-Narbonne")
     with gr.Row():
         operator_input = gr.Dropdown(label="Opérateur", choices=["Orange", "SFR", "Transatel", "Stellar"], value="Orange")
@@ -451,8 +459,18 @@ with gr.Blocks() as demo:
     show_button = gr.Button("Afficher la carte")
     map_output = gr.Plot(label="Carte")
     with gr.Row():
-        pie_output = gr.Plot(label="Qualité de la portion")
-        bar_output = gr.Plot(label="Durée continue par couleur")
+        pie_output = gr.Plot(
+            label="Qualité de la portion",
+            elem_classes="small-plot",
+            scale=1,
+            min_width=200,
+        )
+        bar_output = gr.Plot(
+            label="Durée continue par couleur",
+            elem_classes="small-plot",
+            scale=1,
+            min_width=200,
+        )
     chart_output = gr.Plot(label="Graphique choisi")
 
 
