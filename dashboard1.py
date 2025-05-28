@@ -2,7 +2,7 @@
 
 import gradio as gr
 
-from data_utils import df_all
+from data_utils import get_current_dataset
 from charts import update_map
 
 
@@ -17,12 +17,6 @@ with gr.Blocks(
 ) as demo:
     gr.Markdown("## Carte de connectivité sur le trajet Toulouse-Narbonne")
     with gr.Row():
-        operator_input = gr.Dropdown(
-            label="Opérateur",
-            choices=["Orange", "SFR", "Transatel", "Stellar"],
-            value="Orange",
-        )
-        trip_input = gr.Radio(label="Trajet", choices=["aller", "retour"], value="aller")
         metric_input = gr.Dropdown(
             label="Métrique",
             choices=["connectMbs", "rsrp", "rsrq"],
@@ -35,17 +29,17 @@ with gr.Blocks(
         )
         start_input = gr.Slider(
             label="Début",
-            minimum=df_all["prev_ts_unix"].min(),
-            maximum=df_all["prev_ts_unix"].max(),
-            value=df_all["prev_ts_unix"].min(),
+            minimum=get_current_dataset()["prev_ts_unix"].min(),
+            maximum=get_current_dataset()["prev_ts_unix"].max(),
+            value=get_current_dataset()["prev_ts_unix"].min(),
             step=1,
             elem_classes="smaller",
         )
         end_input = gr.Slider(
             label="Fin",
-            minimum=df_all["prev_ts_unix"].min(),
-            maximum=df_all["prev_ts_unix"].max(),
-            value=df_all["prev_ts_unix"].max(),
+            minimum=get_current_dataset()["prev_ts_unix"].min(),
+            maximum=get_current_dataset()["prev_ts_unix"].max(),
+            value=get_current_dataset()["prev_ts_unix"].max(),
             step=1,
             elem_classes="smaller",
         )
@@ -69,12 +63,12 @@ with gr.Blocks(
 
     show_button.click(
         fn=update_map,
-        inputs=[operator_input, trip_input, metric_input, start_input, end_input, graph_choice],
+        inputs=[metric_input, start_input, end_input, graph_choice],
         outputs=[map_output, pie_output, bar_output, chart_output],
     )
     demo.load(
         fn=update_map,
-        inputs=[operator_input, trip_input, metric_input, start_input, end_input, graph_choice],
+        inputs=[metric_input, start_input, end_input, graph_choice],
         outputs=[map_output, pie_output, bar_output, chart_output],
     )
 
