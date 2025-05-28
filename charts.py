@@ -7,10 +7,11 @@ import plotly.graph_objects as go
 from shapely.geometry import Point
 
 from data_utils import (
-    df_all,
     df_gares,
     get_color,
     clip_connectmbs,
+    get_current_dataset,
+    current_dataset_range,
 )
 from geometry_utils import (
     line_utm,
@@ -23,16 +24,13 @@ from geometry_utils import (
 )
 
 
-def filter_data(operator: str, trajet: str, start_dt: datetime, end_dt: datetime) -> "pd.DataFrame | None":
+def filter_data(start_dt: datetime, end_dt: datetime) -> "pd.DataFrame | None":
+    """Return portion of the current dataset within the given time range."""
     import pandas as pd
 
-    mask = (
-        (df_all["operateur"].str.strip().str.lower() == operator.strip().lower())
-        & (df_all["trajet"].str.strip().str.lower() == trajet.strip().lower())
-        & (df_all["prev_received_at"] >= start_dt)
-        & (df_all["prev_received_at"] <= end_dt)
-    )
-    df_filtered = df_all[mask].copy()
+    df = get_current_dataset()
+    mask = (df["prev_received_at"] >= start_dt) & (df["prev_received_at"] <= end_dt)
+    df_filtered = df[mask].copy()
     if df_filtered.empty:
         gr.Warning("⚠️ Aucun point pour cette sélection")
         return None
@@ -277,13 +275,19 @@ def time_chart(df_filtered, df_time) -> go.Figure:
     return fig_time
 
 
-def update_map(operator, trajet, metric, start_ts, end_ts, chart_choice):
+def update_map(metric, start_ts, end_ts, chart_choice):
+    """Update all charts for Dashboard 1 using the current dataset."""
+    data_min, data_max = current_dataset_range()
+
+    start_ts = max(start_ts, data_min)
+    end_ts = min(end_ts, data_max)
+
     start_dt = datetime.fromtimestamp(start_ts) - timedelta(hours=2)
     end_dt = datetime.fromtimestamp(end_ts) - timedelta(hours=2)
 
     metric = metric.strip().lower()
 
-    df_filtered = filter_data(operator, trajet, start_dt, end_dt)
+    df_filtered = filter_data(start_dt, end_dt)
     if df_filtered is None:
         return go.Figure(), go.Figure(), go.Figure(), go.Figure()
 

@@ -114,3 +114,26 @@ df_gares = pd.DataFrame(stations_data)
 
 # Global dataset
 df_all = load_dataset("df_trainways.csv")
+
+# Current dataset used by the dashboards. This can be replaced at runtime
+# from the home page.
+df_current = df_all.copy()
+
+
+def current_dataset_range() -> tuple[float, float]:
+    """Return the (min_ts, max_ts) range of the current dataset."""
+    return (
+        df_current["prev_ts_unix"].min(),
+        df_current["prev_ts_unix"].max(),
+    )
+
+
+def set_current_dataset(df: pd.DataFrame) -> None:
+    """Set the dataset to be used in the dashboards."""
+    global df_current
+    df_current = df
+
+
+def get_current_dataset() -> pd.DataFrame:
+    """Return the dataset currently in use."""
+    return df_current

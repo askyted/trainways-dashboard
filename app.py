@@ -1,5 +1,6 @@
 import gradio as gr
 
+from home import demo as home_app
 from dashboard1 import demo as dashboard1_app
 try:
     from dashboard2 import demo as dashboard2_app
@@ -15,8 +16,9 @@ except Exception:
         gr.Markdown("Dashboard 3 (GNetTrack) placeholder")
 
 app = gr.TabbedInterface(
-    [dashboard1_app, dashboard2_app, dashboard3_app],
+    [home_app, dashboard1_app, dashboard2_app, dashboard3_app],
     [
+        "Accueil",
         "Dashboard 1 - Trainways",
         "Dashboard 2 - Zoom",
         "Dashboard 3 - GNetTrack",
