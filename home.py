@@ -36,7 +36,12 @@ def fetch_trips(os_choice, depart, arrivee):
 def select_trip(choice):
     if not choice:
         return "Aucun trajet sélectionné"
-    idx = int(choice.split()[1]) - 1 if choice[0].isdigit() else int(choice)
+    try:
+        # the dropdown returns the label, e.g. "Trajet 1 - ..."
+        # extract the numeric index after the word "Trajet"
+        idx = int(choice.split()[1]) - 1
+    except (ValueError, IndexError):
+        return "Choix invalide"
     row = search_results[idx]
     try:
         df = pinData_to_df(row.get("pinData", ""))
